@@ -36,7 +36,7 @@ wss.on('connection', (ws) => {
     let nickname = null;
     let currentChannel = PUBLIC_CHANNEL;
     let userInfo = { userId: '', username: '' };
-    const pendingKey = new Map(); // channel -> key（等待 join 成功后设置 +sk）
+    const pendingKey = new Map();
 
     ws.on('message', (raw) => {
         let data;
@@ -209,7 +209,7 @@ function selfPing() {
     if (!SELF_URL) return;
     setInterval(() => {
         fetch(SELF_URL).catch(() => {});
-    }, 14 * 60 * 1000); // 每 14 分钟
+    }, 14 * 60 * 1000);
 }
 
 const PORT = process.env.PORT || 3000;
