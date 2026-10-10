@@ -8,15 +8,14 @@ app.use(express.json());
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
-const IRC_HOST       = process.env.IRC_HOST       || 'irc.libera.chat';
-const IRC_PORT       = parseInt(process.env.IRC_PORT || '6697');
-const IRC_TLS        = (process.env.IRC_TLS || 'true') === 'true';
+const IRC_HOST = process.env.IRC_HOST || 'irc.libera.chat';
+const IRC_PORT = parseInt(process.env.IRC_PORT || '6697');
+const IRC_TLS = (process.env.IRC_TLS || 'true') === 'true';
 const PUBLIC_CHANNEL = process.env.PUBLIC_CHANNEL || '#lobby-luau-xyz';
-const SELF_URL       = process.env.RENDER_EXTERNAL_URL || '';
+const SELF_URL = process.env.RENDER_EXTERNAL_URL || '';
 
 const messages = [];
 let nextId = 0;
-const httpClients = new Set();
 
 function pushMessage(msg) {
     messages.push(msg);
@@ -44,11 +43,9 @@ wss.on('connection', (ws) => {
 
         if (data.type === 'init') {
             if (irc) return;
-
             userInfo.userId = String(data.userId || '');
             userInfo.username = String(data.username || 'anon');
             nickname = 'L_' + userInfo.userId.slice(-8) + randSuffix();
-
             irc = new IRC.Client();
 
             irc.on('registered', () => {
@@ -65,13 +62,24 @@ wss.on('connection', (ws) => {
                 if (!event.target || !event.target.startsWith('#')) return;
                 if (event.nick === nickname) return;
 
+                let actualUsername = event.nick;
+                let actualUserId = event.nick;
+                let actualMessage = event.message;
+
+                const match = event.message.match(/^\[([^|]+)\|([^\]]+)\]\s*([\s\S]*)$/);
+                if (match) {
+                    actualUsername = match[1];
+                    actualUserId = match[2];
+                    actualMessage = match[3];
+                }
+
                 const msg = {
                     id: ++nextId,
                     channel: event.target,
-                    username: event.nick,
-                    displayName: event.nick,
-                    userId: event.nick,
-                    message: event.message,
+                    username: actualUsername,
+                    displayName: actualUsername,
+                    userId: actualUserId,
+                    message: actualMessage,
                     timestamp: Date.now()
                 };
                 pushMessage(msg);
@@ -113,30 +121,29 @@ wss.on('connection', (ws) => {
         }
 
         if (!irc) return;
-        
+
         if (data.type === 'join') {
             if (!data.channel) return;
             irc.join(data.channel, data.key || '');
             currentChannel = data.channel;
-
         } else if (data.type === 'create_private') {
             if (!data.channel) return;
             const key = data.key || genKey();
             pendingKey.set(data.channel, key);
             irc.join(data.channel);
             currentChannel = data.channel;
-
         } else if (data.type === 'part') {
             const ch = data.channel || currentChannel;
             irc.part(ch);
             if (ch === currentChannel) currentChannel = PUBLIC_CHANNEL;
-
         } else if (data.type === 'switch') {
             if (data.channel) currentChannel = data.channel;
-
         } else if (data.type === 'message') {
             const target = data.channel || currentChannel;
-            if (data.message) irc.say(target, String(data.message).slice(0, 400));
+            if (data.message) {
+                const payload = `[${userInfo.username}|${userInfo.userId}] ${data.message}`;
+                irc.say(target, payload.slice(0, 400));
+            }
         }
     });
 
@@ -145,10 +152,6 @@ wss.on('connection', (ws) => {
             try { irc.quit('Luau disconnected'); } catch {}
         }
     });
-});
-
-app.post('/api/v1/chat/init', (req, res) => {
-    res.json({ success: true });
 });
 
 let sharedIrc = null;
@@ -164,13 +167,25 @@ function ensureSharedIrc() {
     sharedIrc.on('message', (event) => {
         if (!event.target || !event.target.startsWith('#')) return;
         if (event.nick === sharedNick) return;
+
+        let actualUsername = event.nick;
+        let actualUserId = event.nick;
+        let actualMessage = event.message;
+
+        const match = event.message.match(/^\[([^|]+)\|([^\]]+)\]\s*([\s\S]*)$/);
+        if (match) {
+            actualUsername = match[1];
+            actualUserId = match[2];
+            actualMessage = match[3];
+        }
+
         pushMessage({
             id: ++nextId,
             channel: event.target,
-            username: event.nick,
-            displayName: event.nick,
-            userId: event.nick,
-            message: event.message,
+            username: actualUsername,
+            displayName: actualUsername,
+            userId: actualUserId,
+            message: actualMessage,
             timestamp: Date.now()
         });
     });
@@ -179,17 +194,26 @@ function ensureSharedIrc() {
         setTimeout(ensureSharedIrc, 5000);
     });
     sharedIrc.connect({
-        host: IRC_HOST, port: IRC_PORT, tls: IRC_TLS,
-        nick: sharedNick, username: sharedNick, gecos: 'Luau HTTP User'
+        host: IRC_HOST,
+        port: IRC_PORT,
+        tls: IRC_TLS,
+        nick: sharedNick,
+        username: sharedNick,
+        gecos: 'Luau HTTP User'
     });
 }
 
+app.post('/api/v1/chat/init', (req, res) => {
+    res.json({ success: true });
+});
+
 app.post('/api/v1/chat/send', (req, res) => {
-    const { message } = req.body || {};
+    const { userId, username, message } = req.body || {};
     if (!message) return res.status(400).json({ success: false });
     ensureSharedIrc();
     if (sharedIrc && sharedIrc.connected) {
-        sharedIrc.say(PUBLIC_CHANNEL, String(message).slice(0, 400));
+        const payload = `[${username || 'HttpUser'}|${userId || '0'}] ${message}`;
+        sharedIrc.say(PUBLIC_CHANNEL, payload.slice(0, 400));
         return res.json({ success: true });
     }
     res.json({ success: false });
