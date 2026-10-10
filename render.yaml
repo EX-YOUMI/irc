@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: luau-irc-bridge
+    name: irc.netcar
     runtime: node
     plan: free
     buildCommand: npm install
