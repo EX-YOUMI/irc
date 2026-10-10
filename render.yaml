@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: luau-irc-bridge
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /
+    envVars:
+      - key: IRC_HOST
+        value: irc.libera.chat
+      - key: IRC_PORT
+        value: "6697"
+      - key: IRC_TLS
+        value: "true"
+      - key: PUBLIC_CHANNEL
+        sync: false
